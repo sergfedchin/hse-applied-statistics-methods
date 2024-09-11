@@ -1,3 +1,4 @@
+import bisect
 import numpy as np
 import random
 import math
@@ -20,7 +21,8 @@ def generate_binary_sequence(length: int) -> str:
     Generates random numbers and joins their binary form into
     a string of length 'length'
     """
-    return ''.join([bin(random.randint(0, 2_147_483_647))[2:] for _ in range(length // 16)])[0:length]
+    return ''.join([bin(random.randint(0, 2_147_483_647))[2:]
+                    for _ in range(length // 16)])[0:length]
 
 
 class NISTTests:
@@ -38,7 +40,7 @@ class NISTTests:
             {"test": self.test_6, "id": 6, "description": "spectral test"},
             {"test": self.test_7, "id": 7, "description": "non-overlapping templates test"},
             {"test": self.test_8, "id": 8, "description": "overlapping templates test"},
-            {"test": self.test_9, "id": 9, "description": "universal test TODO"},
+            {"test": self.test_9, "id": 9, "description": "universal test"},
             {"test": self.test_10, "id": 10, "description": "linear complexity test"},
             {"test": self.test_11, "id": 11, "description": "serial test"},
             {"test": self.test_12, "id": 12, "description": "approximate entropy test"},
@@ -63,6 +65,9 @@ class NISTTests:
         for test in self.tests:
             print(f'Test {test["id"]} ({test["description"]}): ', end="")
             self.conduct_test(test["test"], test["id"])
+
+        print("-" * 40, "\nResults:", self.test_results)
+        print(f"{self.test_results.count(True)}/15 tests passed.")
 
     def test_1(self, input: str) -> tuple:
         """
@@ -115,7 +120,8 @@ class NISTTests:
             V_n = V_n if input[i] == input[i + 1] else V_n + 1
         # calculate p-value
         tmp_val = 2 * pi * (1 - pi)
-        p_value = math.erfc(math.fabs(V_n - self.n * tmp_val) / math.sqrt(2 * self.n) * tmp_val)
+        p_value = math.erfc(math.fabs(V_n - self.n * tmp_val) /
+                            math.sqrt(2 * self.n) * tmp_val)
         return (p_value >= self.alpha, p_value)
 
     def find_max_ones_subsequence(bin_string: str) -> int:
@@ -165,9 +171,8 @@ class NISTTests:
 
         v = [sum(lookup_table[i] < cur <= lookup_table[i + 1]
                  for cur in max_ones_subsequence_lengths)
-                 for i in range(len(lookup_table) - 1)]
+             for i in range(len(lookup_table) - 1)]
         # then calculate chi-squared
-        # https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-22r1a.pdf section 3-4
         KS = [3, 5, 6]
         RS = [16, 49, 75]
         k, r = KS[case_id], RS[case_id]
@@ -177,8 +182,8 @@ class NISTTests:
                [0.0882, 0.2092, 0.2483, 0.1933, 0.1208, 0.0675, 0.0727]
                ]
         pi = PIS[case_id]
-        chi_squared = sum(((v[i] - r * pi[i]) ** 2) / (r * pi[i]) for i in range(k + 1))
-        # print(f"M={block_size}, K={k}, R={r}, v={v} CHI_SQUARED={chi_squared}")
+        chi_squared = sum(((v[i] - r * pi[i]) ** 2) / (r * pi[i])
+                          for i in range(k + 1))
 
         # calculate p-value
         p_value = gammaincc(k/2, chi_squared / 2)
@@ -192,10 +197,6 @@ class NISTTests:
         Matrice test
         Input length recommended to be at least 38.912 bit
         """
-        # def P(r, q, m):
-        #     product = 1.0
-        #     for i in range(r):
-        #         product *= ((1 - 2 ** (i - q)) * (1 - 2 ** (i - m))) / (1 - 2 ** (i - r))
         M = 32
         Q = 32
         N = self.n // (M * Q)
@@ -203,7 +204,6 @@ class NISTTests:
             raise ValueError("Not enough bits to test (minimum 1024 required)")
         arr = np.array(list(map(int, input[0:N * M * Q])))
         arr = arr.reshape(N, M, Q)
-        # print(np.linalg.matrix_rank(arr[0]), np.linalg.matrix_rank(arr[1]))
 
         # count how many matrices have ranks M and M-1
         F = [0, 0, 0]
@@ -228,7 +228,6 @@ class NISTTests:
             chi_squared += pow((F[i] - pi[i] * N), 2) / (pi[i] * N)
 
         p_value = math.exp(-chi_squared / 2)
-        # print(f"chi-squared={chi_squared} p-value={p_value}")
         return (p_value >= self.alpha, p_value)
 
     def test_6(self, input: str) -> tuple:
@@ -237,30 +236,29 @@ class NISTTests:
         """
         plus_one_minus_one = list(map(lambda c: int(c) * 2 - 1, input))
 
-        # Step 2 - Apply a Discrete Fourier transform (DFT) on X to produce: S = DFT(X).
+        # apply a Discrete Fourier transform (DFT) on X to produce S = DFT(X).
         # A sequence of complex variables is produced which represents periodic
         # components of the sequence of bits at different frequencies
         spectral = sff.fft(plus_one_minus_one)
 
-        # Step 3 - Calculate M = modulus(S´) ≡ |S'|, where S´ is the substring consisting of the first n/2
-        # elements in S, and the modulus function produces a sequence of peak heights.
+        # сalculate M = |S'|, where S´ is the substring consisting of
+        # the first n/2 elements in S
         modulus = abs(spectral[0:self.n // 2])
 
-        # Step 4 - Compute T = sqrt(log(1 / 0.05) * length_of_string) the 95 % peak height threshold value.
-        # Under an assumption of randomness, 95 % of the values obtained from the test should not exceed T.
+        # сompute T - the 95 % peak height threshold value. Under an assumption
+        # of randomness, 95 % of the values obtained should not exceed T.
         tau = sqrt(math.log(1 / 0.05) * self.n)
 
-        # Step 5 - Compute N0 = .95n/2. N0 is the expected theoretical (95 %) number of peaks
-        # (under the assumption of randomness) that are less than T.
+        # сompute N0 = .95n/2. N0 is the expected theoretical (95 %) number of
+        # peaks (under the assumption of randomness) that are less than T.
         n0 = 0.95 * (self.n / 2)
 
-        # Step 6 - Compute N1 = the actual observed number of peaks in M that are less than T.
+        # compute N1 = the actual observed number of peaks in M less than T.
         n1 = len(np.where(modulus < tau)[0])
 
-        # Step 7 - Compute d = (n_1 - n_0) / sqrt (length_of_string * (0.95) * (0.05) / 4)
         d = (n1 - n0) / sqrt(self.n * (0.95) * (0.05) / 4)
 
-        # Step 8 - Compute p_value = erfc(abs(d)/sqrt(2))
+        # compute p-value
         p_value = math.erfc(math.fabs(d) / sqrt(2))
         return (p_value >= self.alpha, p_value)
 
@@ -276,18 +274,20 @@ class NISTTests:
         # for each block count the number of pattern hits
         for i in range(N):
             block = input[i * block_size:(i + 1) * block_size]
-            window_start = 0
-            while window_start < block_size:
-                if block[window_start:window_start + pattern_size] == target_pattern:
+            win_start = 0
+            while win_start < block_size:
+                if block[win_start:win_start + pattern_size] == target_pattern:
                     pattern_counts[i] += 1
-                    window_start += pattern_size
+                    win_start += pattern_size
                 else:
-                    window_start += 1
+                    win_start += 1
 
         # calculate the theoretical mean and variance
         mean = (block_size - pattern_size + 1) / pow(2, pattern_size)
         # variance - σ2 = M((1/pow(2,m)) - ((2m -1)/pow(2, 2m)))
-        variance = block_size * ((1 / pow(2, pattern_size)) - (((2 * pattern_size) - 1) / (pow(2, pattern_size * 2))))
+        variance = block_size * ((1 / pow(2, pattern_size)) -
+                                 (((2 * pattern_size) - 1) /
+                                  (pow(2, pattern_size * 2))))
 
         # calculate the chi-squared statistic for these pattern matches
         chi_squared = 0
@@ -316,9 +316,7 @@ class NISTTests:
         pattern = '1' * pattern_size
         N = self.n // block_size  # number of blocks
 
-        # λ = (M-m+1)/pow(2, m)
-        lambda_val = float(block_size - pattern_size + 1) / pow(2, pattern_size)
-        # η = λ/2
+        lambda_val = (block_size - pattern_size + 1) / pow(2, pattern_size)
         eta = lambda_val / 2
 
         pi = [get_prob(i, eta) for i in range(5)]
@@ -328,19 +326,74 @@ class NISTTests:
         for i in range(N):
             block = input[i * block_size:(i + 1) * block_size]
             # count the number of pattern hits
-            pattern_count = sum([block[j:j + pattern_size] == pattern for j in range(block_size)])
+            pattern_count = sum([block[j:j + pattern_size] == pattern
+                                 for j in range(block_size)])
             pattern_counts[min(pattern_count, 5)] += 1
 
         # calculate p-value
-        chi_squared = sum([pow(pattern_counts[i] - N * pi[i], 2) / (N * pi[i]) for i in range(len(pattern_counts))])
+        chi_squared = sum([pow(pattern_counts[i] - N * pi[i], 2) / (N * pi[i])
+                           for i in range(len(pattern_counts))])
         p_value = gammaincc(5 / 2, chi_squared / 2)
         return (p_value >= self.alpha, p_value)
 
     def test_9(self, input: str) -> tuple:
         """
         Maurer’s “Universal Statistical” Test
+        Minimum input length is 387.840 bits
         """
-        return (True, 1)
+        boundaries = [-1, 387840, 904960, 2068480, 4654080, 10342400, 22753280,
+                      49643520, 107560960, 231669760, 496435200, 1059061760]
+        pattern_size = bisect.bisect_right(boundaries, self.n) + 4  # L
+        if pattern_size <= 5 or pattern_size >= 16:
+            """
+            raise ValueError("Not enough or too many bits to test. Minimum "
+                             "input length is 387.840 bits")
+            """
+            return (False, None)
+
+        # create the biggest binary string of length pattern_size, which
+        # determines how long the state list should be
+        num_ints = int("1" * pattern_size, 2)
+        v = np.zeros(num_ints + 1)
+
+        # keeps track of the blocks and whether we are initializing or summing
+        num_blocks = int(self.n / pattern_size)
+        init_bits = 10 * pow(2, pattern_size)  # Q
+
+        test_bits = num_blocks - init_bits
+
+        # These are the expected values assuming randomness (uniform)
+        c = 0.7 - 0.8 / pattern_size + ((4 + 32 / pattern_size) *
+                                        pow(test_bits, -3 / pattern_size) / 15)
+        variance = [0, 0, 0, 0, 0, 0, 2.954, 3.125, 3.238, 3.311, 3.356, 3.384,
+                    3.401, 3.410, 3.416, 3.419, 3.421]
+        expected = [0, 0, 0, 0, 0, 0, 5.2177052, 6.1962507, 7.1836656,
+                    8.1764248, 9.1723243, 10.170032, 11.168765, 12.168070,
+                    13.167693, 14.167488, 15.167379]
+        sigma = c * sqrt(variance[pattern_size] / test_bits)
+
+        cumsum = 0.0
+        # Examine each of the K blocks in the test segment and determine the
+        # number of blocks since the last occurrence of the same L-bit block
+        # (i.e., i – Tj). Replace the value in the table with the location of
+        # the current block (i.e., Tj= i). Add the calculated distance between
+        # re-occurrences of the same L-bit block to an accumulating log2 sum
+        # of all the differences detected in the K blocks
+        for i in range(num_blocks):
+            # determine what state we are in
+            int_rep = int(input[i * pattern_size:(i + 1) * pattern_size], 2)
+            # initialize the state list
+            if i >= init_bits:
+                cumsum += math.log(i - v[int_rep] + 1, 2)
+            v[int_rep] = i + 1
+
+        # compute the statistic
+        phi = cumsum / test_bits
+        stat = abs(phi - expected[pattern_size]) / (sqrt(2) * sigma)
+
+        # compute p-value
+        p_value = math.erfc(stat)
+        return (p_value >= self.alpha, p_value)
 
     def test_10(self, input: str) -> tuple:
         """
@@ -349,14 +402,8 @@ class NISTTests:
         """
         def berlekamp_massey_algorithm(block_data):
             """
-            An implementation of the Berlekamp Massey Algorithm. Taken from Wikipedia [1]
-            [1] - https://en.wikipedia.org/wiki/Berlekamp-Massey_algorithm
-            The Berlekamp–Massey algorithm is an algorithm that will find the shortest linear feedback shift register (LFSR)
-            for a given binary output sequence. The algorithm will also find the minimal polynomial of a linearly recurrent
-            sequence in an arbitrary field. The field requirement means that the Berlekamp–Massey algorithm requires all
-            non-zero elements to have a multiplicative inverse.
-            :param block_data:
-            :return:
+            An implementation of the Berlekamp Massey Algorithm from Wikipedia
+            https://en.wikipedia.org/wiki/Berlekamp-Massey_algorithm
             """
             n = len(block_data)
             c = np.zeros(n)
@@ -395,12 +442,15 @@ class NISTTests:
             raise ValueError("Not enough bits to test (minimum 500 bits)")
 
         # calculate complexities of blocks using the Berlekamp-Massey algorithm
-        complexities = [berlekamp_massey_algorithm(input[i * M:(i + 1) * M]) for i in range(N)]
+        complexities = [berlekamp_massey_algorithm(input[i * M:(i + 1) * M])
+                        for i in range(N)]
 
         t = [-1 * (((-1) ** M) * (c - mean) + 2 / 9) for c in complexities]
-        vg = np.histogram(t, bins=[-np.inf, -2.5, -1.5, -0.5, 0.5, 1.5, 2.5, np.inf])[0][::-1]
+        vg = np.histogram(t, bins=[-np.inf, -2.5, -1.5, -0.5, 0.5,
+                                   1.5, 2.5, np.inf])[0][::-1]
         # calculate p-value
-        chi_squared = sum([((vg[i] - N * pi[i]) ** 2) / (N * pi[i]) for i in range(7)])
+        chi_squared = sum([((vg[i] - N * pi[i]) ** 2) / (N * pi[i])
+                           for i in range(7)])
         p_value = gammaincc(6 / 2, chi_squared / 2)
         return (p_value >= self.alpha, p_value)
 
@@ -414,7 +464,7 @@ class NISTTests:
         # get max length one patterns for m, m-1, m-2
         max_pattern = '1' * (m + 1)
 
-        # Step 02: Determine the frequency of all possible overlapping m-bit blocks,
+        # determine the frequency of all possible overlapping m-bit blocks,
         # all possible overlapping (m-1)-bit blocks and
         # all possible overlapping (m-2)-bit blocks.
         v_01 = np.zeros(int(max_pattern[0:m:], 2) + 1)
@@ -422,33 +472,38 @@ class NISTTests:
         v_03 = np.zeros(int(max_pattern[0:m - 2:], 2) + 1)
 
         for i in range(self.n):
-            # Check what pattern is observed and use its binary form ass its index
+            # check what pattern thi is and use its binary form as its index
             v_01[int(input[i:i + m:], 2)] += 1
             v_02[int(input[i:i + m - 1:], 2)] += 1
             v_03[int(input[i:i + m - 2:], 2)] += 1
 
         v = [v_01, v_02, v_03]
-        # Step 03 Compute for ψs
-        sums = [sum(pow(v[i][j], 2) for j in range(len(v[i]))) * pow(2, m - i) / self.n for i in range(3)]
+        # compute ψs
+        sums = [sum(pow(v[i][j], 2)
+                    for j in range(len(v[i]))) * pow(2, m - i) / self.n
+                for i in range(3)
+                ]
 
         # compute the test statistics and p-values
-        # Step 04 Compute for ∇
+        # compute the ∇
         nabla_01 = sums[0] - sums[1]
         nabla_02 = sums[0] - 2 * sums[1] + sums[2]
 
-        # Step 05 Compute p-values
+        # compute p-values
         p_value_01 = gammaincc(pow(2, m - 1) / 2, nabla_01 / 2)
         p_value_02 = gammaincc(pow(2, m - 2) / 2, nabla_02 / 2)
 
-        return (p_value_01 >= self.alpha and p_value_02 >= self.alpha, p_value_01, p_value_02)
+        return (p_value_01 >= self.alpha and p_value_02 >= self.alpha,
+                p_value_01, p_value_02)
 
     def test_12(self, input: str) -> tuple:
         """
         Approximate entropy test
         """
         m = max(2, int(math.log2(self.n)) - 6)  # pattern length
-        # append m-1 bits from the beginning of the sequence to the end of the sequence.
-        # NOTE: documentation says m-1 bits but that doesnt make sense, or work.
+        # append m-1 bits from the beginning of the sequence to
+        # the end of the sequence. NOTE: documentation says m-1
+        # bits but that doesnt make sense, or work.
         input += input[:m + 1:]
 
         max_pattern = '1' * (m + 2)
@@ -477,7 +532,8 @@ class NISTTests:
         """
         if mode != 0:
             input = reversed(input)
-        cumsums = list(np.cumsum(np.array(list(map(lambda c: int(c) * 2 - 1, input)))))
+        cumsums = list(np.cumsum(np.array(list(map(lambda c:
+                                                   int(c) * 2 - 1, input)))))
 
         abs_max = max(cumsums, key=abs)
         sqrt_n = sqrt(self.n)  # calculation optimization
@@ -485,11 +541,15 @@ class NISTTests:
         # calculate statistics and p-value by summating Ф values
         start = int((-self.n / abs_max + 1) // 4)
         end = int((self.n / abs_max - 1) // 4)
-        terms_one = [norm.cdf((4 * k + 1) * abs_max / sqrt_n) - norm.cdf((4 * k - 1) * abs_max / sqrt_n) for k in range(start, end + 1)]
+        terms_one = [norm.cdf((4 * k + 1) * abs_max / sqrt_n) -
+                     norm.cdf((4 * k - 1) * abs_max / sqrt_n)
+                     for k in range(start, end + 1)]
 
         start = int((-self.n / abs_max - 3) // 4)
         end = int((self.n / abs_max - 1) // 4)
-        terms_two = [norm.cdf((4 * k + 3) * abs_max / sqrt_n) - norm.cdf((4 * k + 1) * abs_max / sqrt_n) for k in range(start, end + 1)]
+        terms_two = [norm.cdf((4 * k + 3) * abs_max / sqrt_n) -
+                     norm.cdf((4 * k + 1) * abs_max / sqrt_n)
+                     for k in range(start, end + 1)]
 
         p_value = 1 - sum(terms_one) + sum(terms_two)
         return (p_value >= self.alpha, p_value)
@@ -497,12 +557,9 @@ class NISTTests:
     def test_14(self, input: str) -> tuple:
         """
         Random Excursions Test
-        Recommended minimum input size: 1.000.000 bits 
+        Recommended minimum input size: 1.000.000 bits
         """
         def get_pi_value(k, x):
-            """
-            This method is used by the random_excursions method to get expected probabilities
-            """
             x = abs(x)
             if k == 0:
                 pi = 1 - 1 / (2 * x)
@@ -526,10 +583,10 @@ class NISTTests:
 
         # identify all the locations where the cumulative sum is 0
         zero_positions = np.where(cumsum == 0)[0]
-        # print("\nZERO_POSITIONS:\n", zero_positions)
 
         # with this identify 'cycles'
-        cycles = [cumsum[zero_positions[pos]:zero_positions[pos + 1] + 1] for pos in range(len(zero_positions) - 1)]
+        cycles = [cumsum[zero_positions[pos]:zero_positions[pos + 1] + 1]
+                  for pos in range(len(zero_positions) - 1)]
         j = len(cycles)  # number of cycles
 
         # according to documentation this check should take place
@@ -537,32 +594,30 @@ class NISTTests:
         # than I usually have so it is omitted
         """
         if j < 500:
-            return (False, 0)
+            return (False, None)
         """
 
         # determine the number of times each cycle visits each state
-        state_count = [[len(np.where(cycle == state)[0]) for state in states] for cycle in cycles]
+        state_count = [[len(np.where(cycle == state)[0]) for state in states]
+                       for cycle in cycles]
         state_count = np.transpose(np.clip(state_count, 0, 5))
-        # print("State count:\n", state_count)
 
         # now build a table, which indicates how many cycles contain each
         # state given number of times (i.e. in the first column should be
         # how many cycles reach each state [-4..4] exactly zero times)
-        state_count_2 = [[(sct == cycle).sum() for sct in state_count] for cycle in range(6)]
+        state_count_2 = [[(sct == cycle).sum() for sct in state_count]
+                         for cycle in range(6)]
         state_count_2 = np.transpose(state_count_2)
-        # print("SU:\n", state_count_2)
 
         # compute probabilities pi_k(x) that state x occurs k times in a
         # random distribution
         pi = [[get_pi_value(k, x) for k in range(6)] for x in states]
 
         j_times_pi = j * np.array(pi)
-        chi_squared = np.sum((np.array(state_count_2) - j_times_pi) ** 2 / j_times_pi, axis=1)
-        # print("CHI_SQUARED:\n", chi_squared)
+        chi_squared = np.sum((np.array(state_count_2) - j_times_pi) ** 2
+                             / j_times_pi, axis=1)
 
         p_values = [gammaincc(5 / 2, chi / 2) for chi in chi_squared]
-        # print("P-Values:\n", p_values)
-
         return (all(map(lambda p: p >= self.alpha, p_values)), tuple(p_values))
 
     def test_15(self, input: str) -> tuple:
@@ -582,7 +637,8 @@ class NISTTests:
         zero_positions = np.where(cumsum == 0)[0]
 
         # with this identify 'cycles'
-        cycles = [cumsum[zero_positions[pos]:zero_positions[pos + 1] + 1] for pos in range(len(zero_positions) - 1)]
+        cycles = [cumsum[zero_positions[pos]:zero_positions[pos + 1] + 1]
+                  for pos in range(len(zero_positions) - 1)]
         j = len(cycles)  # number of cycles
 
         # states we are interested in
@@ -592,12 +648,13 @@ class NISTTests:
         xi = {x: len(np.where(cumsum == x)[0]) for x in states}
 
         # compute p-values
-        p_values = [math.erfc(abs(xi[x] - j) / sqrt(2 * j * (4 * abs(x) - 2))) for x in states]
+        p_values = [math.erfc(abs(xi[x] - j) / sqrt(2 * j * (4 * abs(x) - 2)))
+                    for x in states]
 
         return (all(map(lambda p: p >= self.alpha, p_values)), tuple(p_values))
 
 
-seq = generate_binary_sequence(1032000)
+seq = generate_binary_sequence(1032)
 tests = NISTTests(seq)
 tests.test_sequence()
 # tests = NISTTests("0110110101")
