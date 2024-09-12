@@ -21,8 +21,9 @@ def generate_binary_sequence(length: int) -> str:
     Generates random numbers and joins their binary form into
     a string of length 'length'
     """
-    return ''.join([bin(random.randint(0, 2_147_483_647))[2:]
-                    for _ in range(length // 16)])[0:length]
+    return ''.join([bin(int(
+        str(random.randint(-2_147_483_648, 2_147_483_647)).lstrip('-')
+        ))[3:] for _ in range(length // 16)])[0:length]
 
 
 class NISTTests:
