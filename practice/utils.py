@@ -35,7 +35,8 @@ def generate_n_random_numbers(N: int, distribution: str):
 
 def all_keys(*args: dict,):
     '''Get all unique keys of the input dicts'''
-    return np.unique(np.concat([list(a.keys()) for a in args if isinstance(a, dict)]))
+    return np.unique(np.concat([list(a.keys()) for a in args
+                                if isinstance(a, dict)]))
 
 
 def scale_dict(d: dict, x: float | int):
@@ -43,7 +44,11 @@ def scale_dict(d: dict, x: float | int):
 
 
 def isnumber(x):
-    return isinstance(x, int) or isinstance(x, float)
+    try:
+        _ = x + 1
+        return True
+    except TypeError:
+        return False
 
 
 def isiterable(x):
@@ -55,7 +60,7 @@ def isiterable(x):
 
 
 def type_name(x):
-    return type(x).__name__ 
+    return type(x).__name__
 
 
 class IntervalArithmetics:
