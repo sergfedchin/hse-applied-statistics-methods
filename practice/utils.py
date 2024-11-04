@@ -33,6 +33,31 @@ def generate_n_random_numbers(N: int, distribution: str):
             return []
 
 
+def all_keys(*args: dict,):
+    '''Get all unique keys of the input dicts'''
+    return np.unique(np.concat([list(a.keys()) for a in args if isinstance(a, dict)]))
+
+
+def scale_dict(d: dict, x: float | int):
+    return {k: v * x for k, v in d.items()}
+
+
+def isnumber(x):
+    return isinstance(x, int) or isinstance(x, float)
+
+
+def isiterable(x):
+    try:
+        _ = iter(x)
+        return True
+    except TypeError:
+        return False
+
+
+def type_name(x):
+    return type(x).__name__ 
+
+
 class IntervalArithmetics:
     def __init__(self, a: int | float, b: int | float = None):
         self.a = a
