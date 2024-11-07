@@ -1,6 +1,7 @@
 import random
 import math
 import numpy as np
+from collections.abc import Iterable
 
 
 def generate_n_random_numbers(N: int, distribution: str):
@@ -44,6 +45,7 @@ def scale_dict(d: dict, x: float | int):
 
 
 def isnumber(x):
+    return np.isreal(x)
     try:
         _ = x + 1
         return True
@@ -61,6 +63,10 @@ def isiterable(x):
 
 def type_name(x):
     return type(x).__name__
+
+
+def raise_operand_exception(x, y, op: str):
+        raise ValueError(f"unsupported operand type(s) for {op}: '{type_name(x)}' and '{type_name(y)}'")
 
 
 class IntervalArithmetics:
@@ -339,3 +345,171 @@ class AffineArithmetics:
 
     def __itruediv__(self, other):
         return self / other
+
+
+class FwdAAD:
+    all_names = set()
+
+    def __init__(self, real: float | int, dual: dict):
+        self.real = real
+        self.dual = dual
+        self.original_name = None
+
+    def value(self) -> float | int:
+        return self.real
+
+    def get_gradient(self) -> list[float]:
+        return list(self.dual.values())
+
+    def print_gradient(self, precision: int = 6) -> None:
+        print(', '.join(['d/d{} = {:.{}f}'.format(key, d, precision) for key, d in sorted(list(self.dual.items()), key=lambda x: x[0] if len(x[0].split('_')) == 1 else int(x[0].split('_')[-1]))]))
+
+    def get_variable(symbol: str, value: float | int = None, ignore_existent: bool = False):
+        """
+        Create variable symbol.
+
+        :param symbol: unique name to indicate the variable
+        :param value: value of the variable
+        :param ignore_existent: do not raise an exception if variable with
+        name `symbol` already exists
+        :returns: FwdAAD  variable
+        :raises ValueError: if variable with name `symbol` already exists and
+        `ignore_existent` is False
+        """
+        if symbol not in FwdAAD.all_names or ignore_existent:
+            FwdAAD.all_names.add(symbol)
+            res = FwdAAD(value, {symbol: 1})
+            res.original_name = symbol
+            return res
+        else:
+            raise ValueError(f"Variable with name '{symbol}' already exists."
+                             "Please provide a unique name.")
+
+    def get_vector(symbol: str, values: Iterable = None, length: int = None, ignore_existent: bool = False) -> list:
+        """
+        Create a list of variable symbols.
+
+        :param symbol: unique name to indicate the variables. Each variable will have a name in format 'symbol'_i
+        :param values: values of the variables
+        :param length: length of the vector (is required if `values = None`, otherwise ignored)
+        :param ignore_existent: do not raise an exception if a variable with name `symbol` with index in range
+        [1; len(values)] already exists
+        :returns: FwdAAD  variables list
+        :raises ValueError: if a variable with name `symbol` with index in range [1; len(values)] already exists and
+        `ignore_existent` is False
+        """
+        if values is not None:
+            return [FwdAAD.get_variable(symbol + '_' + str(idx + 1), x, ignore_existent) for idx, x in enumerate(values)]
+        elif length is not None:
+            return [FwdAAD.get_variable(symbol + '_' + str(idx + 1), None, ignore_existent) for idx in range(length)]
+        else:
+            raise ValueError("Please provide values or specify length of the vector.")
+
+    def set_value(self, value: int | float) -> None:
+        if not isnumber(value):
+            raise ValueError(f"Expected a number, got '{type_name(value)}'")
+        self.real = value
+        self.dual = {self.original_name: 1}
+
+    def set_name(self, name: str) -> None:
+        derivative = self.dual[self.original_name]
+        del self.dual[self.original_name]
+        FwdAAD.all_names.remove(self.original_name)
+        self.original_name = name
+        FwdAAD.all_names.add(name)
+        self.dual[name] = derivative
+
+    def set_vector_values(vector, values: Iterable[int | float]) -> None:
+        if not isiterable(vector):
+            raise ValueError(f"object '{type_name(vector)}' is not iterable")
+        if not isiterable(values):
+            raise ValueError(f"object '{type_name(values)}' is not iterable")
+        if len(vector) != len(values):
+            raise ValueError("Variables vector and values sizes mismatch")
+        for var, val in zip(vector, values):
+            if not isinstance(var, FwdAAD):
+                raise ValueError(f"Expected '{FwdAAD.__name__}', got '{type_name(var)}'")
+            var.set_value(val)
+
+    def _raise_operand_exception(x, y, op: str):
+        raise ValueError(f"unsupported operand type(s) for {op}: '{type_name(x)}' and '{type_name(y)}'")
+
+    def __repr__(self):
+        return str(self.real)
+
+    def __add__(self, other):
+        if isinstance(other, FwdAAD):
+            real = self.real + other.real
+            dual = {key: self.dual.get(key, 0) + other.dual.get(key, 0) for key in all_keys(self.dual, other.dual)}
+            return FwdAAD(real, dual)
+        elif isnumber(other):
+            return FwdAAD(self.real + other, self.dual)
+        else:
+            FwdAAD._raise_operand_exception(self, other, '+')
+
+    def __pos__(self):
+        return self
+
+    def __neg__(self):
+        return self * (-1)
+
+    def __sub__(self, other):
+        if not isinstance(other, FwdAAD) or isnumber(other):
+            FwdAAD._raise_operand_exception(self, other, '-')
+        return self + (-other)
+
+    def __mul__(self, other):
+        if isinstance(other, FwdAAD):
+            real = self.real * other.real
+            dual = {key: self.dual.get(key, 0) * other.real + self.real * other.dual.get(key, 0) for key in all_keys(self.dual, other.dual)}
+            return FwdAAD(real, dual)
+        elif isnumber(other):
+            return FwdAAD(self.real * other, scale_dict(self.dual, other))
+        else:
+            FwdAAD._raise_operand_exception(self, other, '*')
+
+    def _inverse(self):
+        real2 = self.real * self.real
+        dual = {key: -d / real2 for key, d in self.dual.items()}
+        return FwdAAD(1 / self.real, dual)
+
+    def __truediv__(self, other):
+        if isinstance(other, FwdAAD):
+            return self * other._inverse()
+        elif isnumber(other):
+            return self * (1 / other)
+        else:
+            FwdAAD._raise_operand_exception(self, other, '/')
+
+    def __pow__(self, other):
+        if isinstance(other, FwdAAD):
+            real = pow(self.real, other.real)
+            # (f^g)' = f^{g-1} * (g*f' + f*ln(f)*g')
+            real_x_log_real = self.real * math.log(self.real)
+            pow_self_real_other_real_minus_one = pow(self.real, other.real - 1)
+            dual = {key: pow_self_real_other_real_minus_one * (other.real * self.dual.get(key, 0) +  real_x_log_real * other.dual.get(key, 0)) for key in all_keys(self.dual, other.dual)}
+        elif isnumber(other):
+            real = pow(self.real, other)
+            term = other * pow(self.real, other - 1)  # optimization
+            dual = scale_dict(self.dual, term)
+        else:
+            FwdAAD._raise_operand_exception(self, other, '** or pow()')
+        return FwdAAD(real, dual)
+
+    def __rpow__(self, other):
+        if isnumber(other):
+            real = pow(other, self.real)
+            term = real * math.log(other)
+            dual = {key: term * d for key, d in self.dual.items()}
+            return FwdAAD(real, dual)
+        else:
+            FwdAAD._raise_operand_exception(self, other, '** or pow()')
+
+    __radd__ = __add__
+    __rmul__ = __mul__
+
+    def __rsub__(self, other):
+        return other + (-self)
+
+    def __rtruediv__(self, other):
+        return other * self._inverse()
