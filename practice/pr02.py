@@ -9,7 +9,7 @@ def calculate_c_star(x: list):
 
 
 def task_1():
-    distros_1 = ["uniform_-1_1", "norm_0_1", "cauchy"]
+    distros_1 = ["Uniform[-1, 1]", "Norm(0, 1)", "Cauchy(0, 1)"]
     powers = list(range(1, 8))
     ns_1 = [10 ** d for d in powers]
     c_stars = {d: [calculate_c_star(generate_n_random_numbers(n, d))
@@ -25,10 +25,10 @@ def task_1():
 
 def task_2():
     P = 0.95
-    distros = ["uniform_-1_1", "norm_0_1", "2xuniform_-1_1"]
-    sigma_squared = {"uniform_-1_1": 1 / 3,
-                     "norm_0_1": 1,
-                     "2xuniform_-1_1": 2 / 3}
+    distros = ["Uniform[-1, 1]", "Norm(0, 1)", "2xUniform[-1, 1]"]
+    sigma_squared = {"Uniform[-1, 1]": 1 / 3,
+                     "Norm(0, 1)": 1,
+                     "2xUniform[-1, 1]": 2 / 3}
     quantil = sps.norm(loc=0, scale=1).ppf((1 + P) / 2)
 
     ns = [10, 100, 1000, 5000]
