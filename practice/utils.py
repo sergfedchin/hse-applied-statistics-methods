@@ -2,6 +2,7 @@ import random
 import math
 import numpy as np
 from collections.abc import Iterable
+from collections import defaultdict
 
 
 def generate_n_random_numbers(N: int, distribution: str):
@@ -66,7 +67,8 @@ def type_name(x):
 
 
 def raise_operand_exception(x, y, op: str):
-        raise ValueError(f"unsupported operand type(s) for {op}: '{type_name(x)}' and '{type_name(y)}'")
+    raise ValueError(f"unsupported operand type(s) for {op}: '{type_name(x)}' "
+                     F"and '{type_name(y)}'")
 
 
 class IntervalArithmetics:
@@ -158,6 +160,20 @@ class IntervalArithmetics:
         r = [abs(self.a), abs(self.b)]
         return IntervalArithmetics(min(r), max(r))
 
+    def intersect(self, other):
+        if self.a < other.a:
+            left = self
+            right = other
+        else:
+            left = other
+            right = self
+        if right.b < left.b:
+            return right
+        elif left.b < right.a:
+            return None
+        else:
+            return IntervalArithmetics(right.a, left.b)
+
 
 class AffineArithmetics:
     cnt = 0
@@ -190,9 +206,10 @@ class AffineArithmetics:
         return isinstance(x, int) or isinstance(x, float)
 
     def _all_keys(*args: dict):
-        return list(map(int, np.concat([list(a.keys())
-                                        for a in args if
-                                        isinstance(a, dict)]).astype(int)))
+        return list(map(int, np.concatenate([list(a.keys())
+                                             for a in args if
+                                             isinstance(a, dict)]).astype(
+                                                 int)))
 
     def radius(self):
         return sum([abs(x_i) for x_i in self.deviations.values()])
@@ -200,6 +217,18 @@ class AffineArithmetics:
     def to_IA(self):
         rad = self.radius()
         return IntervalArithmetics(self.cv - rad, self.cv + rad)
+
+    def intersect(self, other):
+        ia_res = self.to_IA().intersect(other.to_IA())
+        if ia_res is not None:
+            return AffineArithmetics(ia_res)
+
+    def to_list(self):
+        rad = self.radius()
+        return [self.cv - rad, self.cv + rad]
+
+    def midpoint(self):
+        return self.cv
 
     def __repr__(self):
         return self.to_IA().__repr__()
@@ -254,10 +283,13 @@ class AffineArithmetics:
             return res
         if isinstance(other, IntervalArithmetics):
             other = AffineArithmetics(other)
+        if isinstance(other, BwdAAD):
+            return other.__mul__(self)
         if not isinstance(other, AffineArithmetics):
             raise TypeError(f"unsupported operand type(s) for *: "
                             f"'{AffineArithmetics.__name__}' "
                             f"and '{type(other).__name__}'")
+        # print("Affine multiplication")
         x_0, y_0 = self.cv, other.cv
         res = AffineArithmetics(x_0 * y_0)
         for i in AffineArithmetics._all_keys(self.deviations,
@@ -346,6 +378,17 @@ class AffineArithmetics:
     def __itruediv__(self, other):
         return self / other
 
+    def __pow__(self, other):
+        if isinstance(other, (int, np.integer)):
+            res = self
+            for _ in range(other):
+                res = res * res
+            return res
+        else:
+            raise TypeError(f"unsupported operand type(s) for pow or **: "
+                            f"'{AffineArithmetics.__name__}' "
+                            f"and '{type(other).__name__}'")
+
 
 class FwdAAD:
     all_names = set()
@@ -362,9 +405,18 @@ class FwdAAD:
         return list(self.dual.values())
 
     def print_gradient(self, precision: int = 6) -> None:
-        print(', '.join(['d/d{} = {:.{}f}'.format(key, d, precision) for key, d in sorted(list(self.dual.items()), key=lambda x: x[0] if len(x[0].split('_')) == 1 else int(x[0].split('_')[-1]))]))
+        print(', '.join(['d/d{} = {:.{}f}'.format(key, d, precision)
+                         for key, d in sorted(list(self.dual.items()),
+                                              key=lambda x: x[0]
+                                              if len(x[0].split('_')) == 1
+                                              else int(x[0].split('_')[-1])
+                                              )
+                         ])
+              )
 
-    def get_variable(symbol: str, value: float | int = None, ignore_existent: bool = False):
+    def get_variable(symbol: str,
+                     value: float | int = None,
+                     ignore_existent: bool = False):
         """
         Create variable symbol.
 
@@ -385,25 +437,39 @@ class FwdAAD:
             raise ValueError(f"Variable with name '{symbol}' already exists."
                              "Please provide a unique name.")
 
-    def get_vector(symbol: str, values: Iterable = None, length: int = None, ignore_existent: bool = False) -> list:
+    def get_vector(symbol: str,
+                   values: Iterable = None,
+                   length: int = None,
+                   ignore_existent: bool = False) -> list:
         """
         Create a list of variable symbols.
 
-        :param symbol: unique name to indicate the variables. Each variable will have a name in format 'symbol'_i
+        :param symbol: unique name to indicate the variables. Each variable
+        will have a name in format 'symbol'_i
         :param values: values of the variables
-        :param length: length of the vector (is required if `values = None`, otherwise ignored)
-        :param ignore_existent: do not raise an exception if a variable with name `symbol` with index in range
+        :param length: length of the vector (is required if `values = None`,
+        otherwise ignored)
+        :param ignore_existent: do not raise an exception if a variable with
+        name `symbol` with index in range
         [1; len(values)] already exists
         :returns: FwdAAD  variables list
-        :raises ValueError: if a variable with name `symbol` with index in range [1; len(values)] already exists and
+        :raises ValueError: if a variable with name `symbol` with index in
+        range [1; len(values)] already exists and
         `ignore_existent` is False
         """
         if values is not None:
-            return [FwdAAD.get_variable(symbol + '_' + str(idx + 1), x, ignore_existent) for idx, x in enumerate(values)]
+            return [FwdAAD.get_variable(symbol + '_' + str(idx + 1),
+                                        x,
+                                        ignore_existent)
+                    for idx, x in enumerate(values)]
         elif length is not None:
-            return [FwdAAD.get_variable(symbol + '_' + str(idx + 1), None, ignore_existent) for idx in range(length)]
+            return [FwdAAD.get_variable(symbol + '_' + str(idx + 1),
+                                        None,
+                                        ignore_existent)
+                    for idx in range(length)]
         else:
-            raise ValueError("Please provide values or specify length of the vector.")
+            raise ValueError("Please provide values or specify length "
+                             "of the vector.")
 
     def set_value(self, value: int | float) -> None:
         if not isnumber(value):
@@ -428,11 +494,13 @@ class FwdAAD:
             raise ValueError("Variables vector and values sizes mismatch")
         for var, val in zip(vector, values):
             if not isinstance(var, FwdAAD):
-                raise ValueError(f"Expected '{FwdAAD.__name__}', got '{type_name(var)}'")
+                raise ValueError(f"Expected '{FwdAAD.__name__}', got "
+                                 f"'{type_name(var)}'")
             var.set_value(val)
 
     def _raise_operand_exception(x, y, op: str):
-        raise ValueError(f"unsupported operand type(s) for {op}: '{type_name(x)}' and '{type_name(y)}'")
+        raise ValueError(f"unsupported operand type(s) for {op}: "
+                         f"'{type_name(x)}' and '{type_name(y)}'")
 
     def __repr__(self):
         return str(self.real)
@@ -440,7 +508,8 @@ class FwdAAD:
     def __add__(self, other):
         if isinstance(other, FwdAAD):
             real = self.real + other.real
-            dual = {key: self.dual.get(key, 0) + other.dual.get(key, 0) for key in all_keys(self.dual, other.dual)}
+            dual = {key: self.dual.get(key, 0) + other.dual.get(key, 0)
+                    for key in all_keys(self.dual, other.dual)}
             return FwdAAD(real, dual)
         elif isnumber(other):
             return FwdAAD(self.real + other, self.dual)
@@ -461,7 +530,9 @@ class FwdAAD:
     def __mul__(self, other):
         if isinstance(other, FwdAAD):
             real = self.real * other.real
-            dual = {key: self.dual.get(key, 0) * other.real + self.real * other.dual.get(key, 0) for key in all_keys(self.dual, other.dual)}
+            dual = {key: self.dual.get(key, 0) * other.real +
+                    self.real * other.dual.get(key, 0)
+                    for key in all_keys(self.dual, other.dual)}
             return FwdAAD(real, dual)
         elif isnumber(other):
             return FwdAAD(self.real * other, scale_dict(self.dual, other))
@@ -487,7 +558,10 @@ class FwdAAD:
             # (f^g)' = f^{g-1} * (g*f' + f*ln(f)*g')
             real_x_log_real = self.real * math.log(self.real)
             pow_self_real_other_real_minus_one = pow(self.real, other.real - 1)
-            dual = {key: pow_self_real_other_real_minus_one * (other.real * self.dual.get(key, 0) +  real_x_log_real * other.dual.get(key, 0)) for key in all_keys(self.dual, other.dual)}
+            dual = {key: pow_self_real_other_real_minus_one *
+                    (other.real * self.dual.get(key, 0) + real_x_log_real *
+                     other.dual.get(key, 0))
+                    for key in all_keys(self.dual, other.dual)}
         elif isnumber(other):
             real = pow(self.real, other)
             term = other * pow(self.real, other - 1)  # optimization
@@ -513,3 +587,185 @@ class FwdAAD:
 
     def __rtruediv__(self, other):
         return other * self._inverse()
+
+
+class BwdAAD:
+    def __init__(self,
+                 value = None,
+                 local_gradients: defaultdict = None,
+                 symbol: str = None):
+        self.value = value
+        self.symbol: str = symbol
+        self.type = type(value) if not isinstance(value, AffineArithmetics) else lambda: AffineArithmetics(1)
+        self.local_gradients: defaultdict = local_gradients if local_gradients else defaultdict(self.type, {self: 1})
+
+    def get_variable(symbol: str, value: int | float = None):
+        """
+        Create variable symbol.
+
+        :param symbol: unique name to indicate the variable
+        :param value: value of the variable
+        :returns: BwdAAD  variable
+        `ignore_existent` is False
+        """
+        return BwdAAD(value=value, symbol=symbol)
+
+    def get_vector(symbol: str,
+                   values: Iterable[int | float] = None,
+                   length: int = None):
+        """
+        Create a list of variable symbols.
+
+        :param symbol: unique name to indicate the variables. Each variable will have a name in format 'symbol'_i
+        :param values: values of the variables
+        :param length: length of the vector (is required if `values = None`, otherwise ignored)
+        :returns: BwdAAD  variables list
+        :raises ValueError: if neither `values` nor `length` arguments have been specified
+        """
+        if values:
+            return [BwdAAD.get_variable(symbol + '_' + str(i + 1), value=val) for i, val in enumerate(values)]
+        elif length:
+            return [BwdAAD.get_variable(symbol=symbol + '_' + str(i + 1)) for i in range(length)]
+        else:
+            raise ValueError("Please provide values or specify length of the vector.")
+
+    def set_value(self, value: float | int):
+        """
+        Change value of the variable to `value`. Note that this deletes the
+        computed gradient for the variable.
+
+        :param value: new value of the variable
+        :raises ValueError: if `value` is not a number
+        """
+        if not isnumber(value):
+            raise ValueError(f"Expected a number, got '{type_name(value)}'")
+        self.value = value
+        self.local_gradients = defaultdict(float, {self: 1})
+
+    def set_name(self, name: str):
+        """
+        Change the symbol of the variable to `name`. Note that this deletes the
+        computed gradient for the variable.
+
+        :param name: new name of the variable
+        :raises ValueError: if `name` is not a str
+        """
+        if not isinstance(name, str):
+            raise ValueError(f"Expected a 'str', got '{type_name(value)}'")
+        self.symbol = name
+        self.local_gradients = defaultdict(float, {self: 1})
+
+    def set_vector_values(vector: Iterable, values: Iterable[int | float]) -> None:
+        """
+        Change values of an entire vector of variable to `values`. Note that this deletes the
+        computed gradient for the variables.
+
+        :param vector: an iterable of variables to change values of
+        :param values: new values of the variables
+        :raises ValueError: if not a number is found in the `values`
+        :raises ValueError: lengths of `vector` and `values` mismatch
+        """
+        if len(values) != len(vector):
+            raise ValueError("`len(values)` must be the same as `len(vector)`")
+        for var, val in zip(vector, values):
+            var.set_value(val)
+
+    def get_gradient(self) -> dict:
+        """
+        Compute the first derivatives of the variable with respect to all its child variables.
+
+        :returns: dict which maps child variable to the derivative of the function w.r.t. this variable
+        """
+        gradients = defaultdict(float)
+
+        def compute_gradients(variable: BwdAAD, path_value):
+            for child_variable, local_gradient in variable.local_gradients.items():
+                # multiply the edges of a path
+                path_to_child_value = path_value * local_gradient
+                # add together different paths
+                gradients[child_variable] += path_to_child_value
+                # recurse through graph if it is not the user-initialised variable
+                if not child_variable.symbol:
+                    compute_gradients(child_variable, path_to_child_value)
+        compute_gradients(self, path_value=1) # path_value=1 is from `variable` differentiated w.r.t. itself
+        return dict(gradients)
+
+    # def print_gradient(self, precision: int = 3):
+    #     print(', '.join(['d/d{} = {:.{}f}'.format(key.symbol, d, precision) for key, d in sorted(list(self.get_gradient().items()), key=lambda x: x[0].symbol if x[0].symbol else '') if key.symbol]))
+    def print_gradient(self):
+        print(', '.join([f'd/d{key.symbol} = {d}' for key, d in sorted(list(self.get_gradient().items()), key=lambda x: x[0].symbol if x[0].symbol else '') if key.symbol]))
+
+    def return_gradient(self):
+        return [d for key, d in sorted(list(self.get_gradient().items()), key=lambda x: x[0].symbol if x[0].symbol else '') if key.symbol]
+
+    def __add__(self, other):
+        if isinstance(other, BwdAAD):
+            value = self.value + other.value
+            local_gradients = defaultdict(float)
+            local_gradients[self] += 1
+            local_gradients[other] += 1
+            return BwdAAD(value, local_gradients)
+        if isnumber(other) or isinstance(other, AffineArithmetics):
+            return BwdAAD(self.value + other, defaultdict(float, {self: 1}))
+        raise_operand_exception(self, other, '+')
+
+    def __mul__(self, other):
+        if isinstance(other, BwdAAD):
+            value = self.value * other.value
+            local_gradients = defaultdict(float)
+            local_gradients[self] += other.value
+            local_gradients[other] += self.value
+            res = BwdAAD(value, local_gradients)
+            return res
+        if isinstance(other, AffineArithmetics):
+            # print("Multiplication in BwdAAD with AffineArithmetic:")
+            # print(f"Value: {self.value} * {other} = {self.value * other}")
+            # print()
+            res = BwdAAD(self.value * other, defaultdict(lambda: BwdAAD(1), {self: other}))
+            return res
+        if isnumber(other):
+            res = BwdAAD(self.value * other, defaultdict(float, {self: other}))
+            return res
+        raise_operand_exception(self, other, '*')
+
+    def __neg__(self):
+        value = -1 * self.value
+        local_gradients = defaultdict(float, {self: -1})
+        return BwdAAD(value, local_gradients)
+
+    def __sub__(self, other):
+        return self + (-other)
+
+    def _inverse(self):
+        value = 1 / self.value
+        local_gradients = defaultdict(float, {self: -1 / self.value ** 2})
+        return BwdAAD(value, local_gradients)   
+
+    def __truediv__(self, other):
+        return self * other._inverse()
+
+    def __rtruediv__(self, other):
+        return self._inverse() * other
+
+    __rmul__ = __mul__
+    __radd__ = __add__
+
+    def __pow__(self, other):
+        if isinstance(other, BwdAAD):
+            value = pow(self.value, other.value)
+            local_gradients = defaultdict(float)
+            local_gradients[self] += other.value * pow(self.value, other.value - 1)
+            local_gradients[other] += pow(self.value, other.value) * np.log(self.value)
+            return BwdAAD(value, local_gradients)
+        if isnumber(other) or isinstance(other, AffineArithmetics):
+            value = pow(self.value, other)
+            local_gradients = defaultdict(float, {self: other * pow(self.value, other - 1)})
+            return BwdAAD(value, local_gradients)
+        raise_operand_exception(self, other, '** or pow()')
+
+    def __rpow__(self, other):
+        if isnumber(other) or isinstance(other, AffineArithmetics):
+            value = pow(other, self.value)
+            local_gradients = defaultdict(float, {self: pow(other, self.value) * np.log(other)})
+            return BwdAAD(value, local_gradients)
+        raise_operand_exception(self, other, '** or pow()')
